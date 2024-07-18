@@ -25,16 +25,42 @@ from telethon.sessions import StringSession
 import aiosqlite
 from qrcode import QRCode
 from aiogram.types import InputFile, ReplyKeyboardMarkup, KeyboardButton, FSInputFile, ReplyKeyboardRemove
+from telethon.extensions import markdown
+from telethon import types
+import re
+
 
 qr = QRCode()
 
-API_TOKEN = '6555572696:AAEve2dexwOrkNhLfZTI8dBFyeKk8Q__1CY'
+# API_TOKEN = '6555572696:AAEve2dexwOrkNhLfZTI8dBFyeKk8Q__1CY'
+API_TOKEN = '7285334695:AAGivqJqQfa_VyTtWXwHuJyo1aXIZMYFUlE'
 
 
 client_session = None
 
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
+
+
+class CustomMarkdown:
+    @staticmethod
+    def parse(text):
+        text, entities = markdown.parse(text)
+        for i, e in enumerate(entities):
+            if isinstance(e, types.MessageEntityTextUrl):
+                if e.url == 'spoiler':
+                    entities[i] = types.MessageEntitySpoiler(e.offset, e.length)
+                elif e.url.startswith('emoji/'):
+                    entities[i] = types.MessageEntityCustomEmoji(e.offset, e.length, int(e.url.split('/')[1]))
+        return text, entities
+    @staticmethod
+    def unparse(text, entities):
+        for i, e in enumerate(entities or []):
+            if isinstance(e, types.MessageEntityCustomEmoji):
+                entities[i] = types.MessageEntityTextUrl(e.offset, e.length, f'emoji/{e.document_id}')
+            if isinstance(e, types.MessageEntitySpoiler):
+                entities[i] = types.MessageEntityTextUrl(e.offset, e.length, 'spoiler')
+        return markdown.unparse(text, entities)
 
 
 bot = Bot(token=API_TOKEN)
@@ -107,6 +133,7 @@ async def cmd_select_chats(message: types.Message, state: FSMContext):
 
     await message.answer("Введите ссылки чатов через запятую:", reply_markup=kb.as_markup(resize_keyboard=True))
     await state.set_state(Form.chat_ids)
+
 
 
 @dp.message(lambda message: message.text == 'Чаты 💬')
@@ -298,6 +325,7 @@ async def sending(message: types.Message, state: FSMContext):
 
 
     telegram_id = message.from_user.id
+    id_message = message.message_id
 
     async with aiosqlite.connect('users.db') as db:
         user = await db.execute_fetchall('SELECT api_id, api_hash, phone FROM users WHERE telegram_id = ?', (telegram_id,))
@@ -315,35 +343,59 @@ async def sending(message: types.Message, state: FSMContext):
         await client.connect()
 
 
-    await bot.send_message(message.chat.id, "Идет отправка сообщений", reply_markup=ReplyKeyboardRemove())
+    try:
 
-    await state.clear()
+        await bot.send_message(message.chat.id, "Идет отправка сообщений", reply_markup=ReplyKeyboardRemove())
 
-    time_wait = 0
-
-    for __time in range(count_cercle_send):
-        for chat_id in list_chat_ids:
-            if time_wait < 10:
-                try:
-                    time_wait = time_wait + 1
-                    entity = await client.get_entity(chat_id)
-                    await client.send_message(entity, text_message)
-                except Exception as e:
-                    await bot.send_message(message.chat.id, f"Ошибка при отправке сообщения в чат {chat_id}: {str(e)}")
-            else:
-                await asyncio.sleep(60)
-                time_wait = 0
-                try:
-                    time_wait = time_wait + 1
-                    entity = await client.get_entity(chat_id)
-                    await client.send_message(entity, text_message)
-                except Exception as e:
-                    await bot.send_message(message.chat.id, f"Ошибка при отправке сообщения в чат {chat_id}: {str(e)}")
+        await state.clear()
 
 
-        await asyncio.sleep(minutes_repeat_send)
+        client.parse_mode = CustomMarkdown()
+        time_wait = 0
+
+
+        smile_entitu = message.entities
+
+        def replace_custom_emojis(text, entities):
+            pattern = re.compile(r'\{prem\}(.+?)\{prem\}')
+            matches = pattern.findall(text)
+
+            for match, entity in zip(matches, entities):
+                emoji_symbol = match
+                emoji_id = entity.custom_emoji_id
+                replacement = f"[{emoji_symbol}](emoji/{emoji_id})"
+                text = text.replace(f"{{prem}}{emoji_symbol}{{prem}}", replacement, 1)
+            return text
+
+        text_ready = replace_custom_emojis(str(text_message), smile_entitu)
+
+
+        for __time in range(count_cercle_send):
+            for chat_id in list_chat_ids:
+                if time_wait < 10:
+                    try:
+                        time_wait = time_wait + 1
+                        entity = await client.get_entity(chat_id)
+                        await client.send_message(entity, text_ready)
+
+                    except Exception as e:
+                        await bot.send_message(message.chat.id, f"Ошибка при отправке сообщения в чат {chat_id}: {str(e)}")
+                else:
+                    await asyncio.sleep(60)
+                    time_wait = 0
+                    try:
+                        time_wait = time_wait + 1
+                        entity = await client.get_entity(chat_id)
+                        await client.send_message(entity, text_ready)
+                    except Exception as e:
+                        await bot.send_message(message.chat.id, f"Ошибка при отправке сообщения в чат {chat_id}: {str(e)}")
+
+
+            await asyncio.sleep(minutes_repeat_send)
+    except Exception as e:
+        print(f"Ошибка при отправке сообщений: {str(e)}")
+
     await client.disconnect() 
-
     await bot.send_message(message.chat.id, "Рассылка завершена, пропишите /start")
 
 
