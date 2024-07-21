@@ -329,7 +329,7 @@ async def sending(message: types.Message, state: FSMContext):
 
     async with aiosqlite.connect('users.db') as db:
         user = await db.execute_fetchall('SELECT api_id, api_hash, phone FROM users WHERE telegram_id = ?', (telegram_id,))
-        chat_ids = await db.execute_fetchall('SELECT chat_id FROM chats WHERE user_id = ?', (telegram_id,))
+        chat_ids = await db.execute_fetchall('SELECT url_chat FROM chats WHERE user_id = ?', (telegram_id,))
 
     list_chat_ids = []
 
@@ -359,41 +359,56 @@ async def sending(message: types.Message, state: FSMContext):
         def replace_custom_emojis(text, entities):
             pattern = re.compile(r'\{prem\}(.+?)\{prem\}')
             matches = pattern.findall(text)
-
-            for match, entity in zip(matches, entities):
-                emoji_symbol = match
-                emoji_id = entity.custom_emoji_id
-                replacement = f"[{emoji_symbol}](emoji/{emoji_id})"
-                text = text.replace(f"{{prem}}{emoji_symbol}{{prem}}", replacement, 1)
+            if matches:
+                for match, entity in zip(matches, entities):
+                    emoji_symbol = match
+                    emoji_id = entity.custom_emoji_id
+                    
+                    replacement = f"[{emoji_symbol}](emoji/{emoji_id})"
+                    text = text.replace(f"{{prem}}{emoji_symbol}{{prem}}", replacement, 1)
+                    
             return text
-
-        text_ready = replace_custom_emojis(str(text_message), smile_entitu)
-
+            
+            
+        emodji_entit = []
+        
+        for i in smile_entitu:
+            if i.type == "custom_emoji":
+                emodji_entit.append(i)
+            
+        text_ready = replace_custom_emojis(str(text_message), emodji_entit)
 
         for __time in range(count_cercle_send):
             for chat_id in list_chat_ids:
+                username_chat = chat_id.split("/")[-1]
+                print(username_chat)
+
                 if time_wait < 10:
                     try:
-                        time_wait = time_wait + 1
-                        entity = await client.get_entity(chat_id)
+                        
+                        entity = await client.get_entity(username_chat)
                         await client.send_message(entity, text_ready)
-
+                        await bot.send_message(message.chat.id, f"Сообщение было отправленно {chat_id}", disable_web_page_preview=True)
+                        time_wait = time_wait + 1
+                        
+                        
                     except Exception as e:
                         await bot.send_message(message.chat.id, f"Ошибка при отправке сообщения в чат {chat_id}: {str(e)}")
                 else:
-                    await asyncio.sleep(60)
+                    await asyncio.sleep(40)
                     time_wait = 0
                     try:
-                        time_wait = time_wait + 1
-                        entity = await client.get_entity(chat_id)
+                        entity = await client.get_entity(username_chat)
                         await client.send_message(entity, text_ready)
+                        await bot.send_message(message.chat.id, f"Сообщение было отправленно {chat_id}", disable_web_page_preview=True)
+                        time_wait = time_wait + 1
                     except Exception as e:
                         await bot.send_message(message.chat.id, f"Ошибка при отправке сообщения в чат {chat_id}: {str(e)}")
 
 
             await asyncio.sleep(minutes_repeat_send)
     except Exception as e:
-        print(f"Ошибка при отправке сообщений: {str(e)}")
+        print(f"Ошибка при отправке сообщений: ", e)
 
     await client.disconnect() 
     await bot.send_message(message.chat.id, "Рассылка завершена, пропишите /start")
