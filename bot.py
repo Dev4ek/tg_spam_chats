@@ -32,8 +32,8 @@ import re
 
 qr = QRCode()
 
-# API_TOKEN = '6555572696:AAEve2dexwOrkNhLfZTI8dBFyeKk8Q__1CY'
-API_TOKEN = '7285334695:AAGivqJqQfa_VyTtWXwHuJyo1aXIZMYFUlE'
+# API_TOKEN = ''
+API_TOKEN = ''
 
 
 client_session = None
